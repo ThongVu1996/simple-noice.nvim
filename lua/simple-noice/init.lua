@@ -1,190 +1,201 @@
 local M = {}
 
--- Default configuration
+-- 1. Default Configuration
 M.defaults = {
 	width = 60,
 	border = "rounded",
 	config = {
-		cmdline = { title = " Cmdline ", icon = "   ", highlight = "DiagnosticInfo", lang = "vim" },
-		search_down = { title = " Search ", icon = "    ", highlight = "DiagnosticWarn", lang = "regex" },
-		search_up = { title = " Search ", icon = "    ", highlight = "DiagnosticWarn", lang = "regex" },
+		cmdline = { title = " Cmdline ", icon = "  ", highlight = "DiagnosticInfo", lang = "vim" },
+		search_down = { title = " Search ", icon = "   ", highlight = "DiagnosticWarn", lang = "regex" },
+		search_up = { title = " Search ", icon = "   ", highlight = "DiagnosticWarn", lang = "regex" },
 	},
-	messages = {
-		enabled = true,
-		highlight = "auto", -- Options: "auto", true, or false
-	}
 }
 
 M.options = {}
-local last_msg_count = 0
-local ns_id = vim.api.nvim_create_namespace("SimpleNoice")
+local ns_id = vim.api.nvim_create_namespace("SimpleNoiceUI")
 
--- Mapping internal modes to config keys (Supports both named and literal keys)
+-- Helper to get configuration based on current mode
 local function get_config(mode)
-	local key_map = { [":"] = "cmdline", ["/"] = "search_down", ["?"] = "search_up" }
-	local key = key_map[mode]
-	return M.options.config[key] or M.options.config[mode] or M.options.config.cmdline
+	local map = { [":"] = "cmdline", ["/"] = "search_down", ["?"] = "search_up" }
+	return M.options.config[map[mode] or "cmdline"]
 end
 
--- Detect if a notification plugin (e.g., snacks.nvim, nvim-notify) is active
-local function has_notifier()
-	local info = debug.getinfo(vim.notify)
-	if info and info.source and (info.source:match("lazy") or info.source:match("site") or info.source:match("pack")) then
-		return true
-	end
-	if package.loaded["snacks.notifier"] or package.loaded["notify"] or package.loaded["fidget"] then
-		return true
-	end
-	return false
+-- Force redrawing the statusline to ensure UI stability
+local function refresh_statusline()
+	vim.schedule(function()
+		vim.cmd("redrawstatus!")
+	end)
 end
 
--- Poll system message history and redirect errors/warnings if configured
-local function check_messages()
-	local messages_str = vim.fn.execute("messages")
-	local messages_list = vim.fn.split(messages_str, "\n")
-	local current_count = #messages_list
-	
-	if current_count ~= last_msg_count then
-		local is_new = current_count > last_msg_count
-		last_msg_count = current_count
-
-		if is_new then
-			local last_msg = messages_list[current_count]
-			if last_msg and last_msg ~= "" then
-				-- Filter for Vim Errors (E...) or Warnings (W...)
-				if last_msg:match("^E%d+:") or last_msg:match("^W%d+:") then
-					local active_notifier = has_notifier()
-					local should_redirect = false
-					
-					-- Check redirection logic based on user settings
-					if M.options.messages.highlight == true then
-						should_redirect = true
-					elseif M.options.messages.highlight == "auto" then
-						should_redirect = active_notifier
-					end
-
-					if should_redirect then
-						-- Notify via external plugin and clear native cmdline
-						pcall(vim.notify, last_msg, vim.log.levels.ERROR, { title = "System Error" })
-						vim.schedule(function()
-							vim.cmd([[echo ""]])
-						end)
-					end
-				end
-			end
-		end
-	end
-end
-
---- Initialize plugin with user options
-function M.setup(opts)
-	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
-
-	-- Initialize message redirection system if enabled
-	if M.options.messages.enabled then
-		last_msg_count = #vim.fn.split(vim.fn.execute("messages"), "\n")
-		
-		-- Use on_key for real-time capture
-		vim.on_key(function(key)
-			if key == nil or key == "" then return end
-			vim.schedule(check_messages)
-		end)
-
-		-- Autocmds to capture non-keyboard triggered messages
-		vim.api.nvim_create_autocmd({ "CmdlineLeave", "CursorHold", "ModeChanged" }, {
-			group = vim.api.nvim_create_augroup("SimpleNoiceMessages", { clear = true }),
-			callback = function()
-				vim.schedule(check_messages)
-			end,
-		})
-	end
-
-	-- Automaticaly set global keybinds for standard command-line triggers
-	vim.keymap.set("n", ":", function() M.open(":") end, { desc = "Simple Noice Cmdline" })
-	vim.keymap.set("n", "/", function() M.open("/") end, { desc = "Simple Noice Search Down" })
-	vim.keymap.set("n", "?", function() M.open("?") end, { desc = "Simple Noice Search Up" })
-end
-
---- Open the floating command line window for the given mode
+-- 2. Core UI Logic for Cmdline/Search
 function M.open(mode)
 	local setup = get_config(mode)
 	local buf = vim.api.nvim_create_buf(false, true)
 	
-	-- Enable Syntax Highlighting by setting filetype and triggering syntax sync
-	if setup.lang then
-		vim.api.nvim_buf_set_option(buf, "filetype", setup.lang)
-		vim.api.nvim_buf_set_option(buf, "syntax", "on")
+	-- Prepare history list
+	local history_type = (mode == ":" and "cmd" or "search")
+	local history_list = {}
+	local h_count = vim.fn.histnr(history_type)
+	for i = 1, h_count do
+		local h = vim.fn.histget(history_type, i)
+		if h ~= "" then table.insert(history_list, h) end
 	end
+	local h_idx = #history_list + 1
 
-	-- Window sizing and positioning (centered)
+	-- Buffer properties setup
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].swapfile = false
+	if setup.lang then vim.bo[buf].filetype = setup.lang end
+
+	-- Open the floating window centered
 	local width = M.options.width
-	local height = 1
-	local row = math.floor((vim.o.lines - height) / 2) - 4
-	local col = math.floor((vim.o.columns - width) / 2)
-
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
-		row = row,
-		col = col,
-		width = width,
-		height = height,
-		style = "minimal",
-		border = M.options.border,
-		title = setup.title,
-		title_pos = "center",
+		row = math.floor((vim.o.lines - 1) / 2) - 4,
+		col = math.floor((vim.o.columns - width) / 2),
+		width = width, height = 1,
+		style = "minimal", border = M.options.border,
+		title = setup.title, title_pos = "center",
 	})
 
-	-- Style window with specific highlight groups
-	vim.api.nvim_win_set_option(win, "winhighlight", "Normal:Normal,FloatBorder:" .. setup.highlight)
-	
-	-- Draw icon as Inline Virtual Text to preserve clean buffer for syntax highlighting
-	vim.api.nvim_buf_set_extmark(buf, ns_id, 0, 0, {
-		virt_text = { { setup.icon, setup.highlight } },
-		virt_text_pos = "inline",
-		right_gravity = false, -- Ensures typed text appears AFTER the icon
-	})
-	
-	vim.cmd("startinsert!")
+	-- Window aesthetics optimization
+	vim.wo[win].winhighlight = "Normal:Normal,FloatBorder:" .. setup.highlight
+	vim.wo[win].signcolumn = "no"
+	vim.wo[win].number = false
+	vim.wo[win].relativenumber = false
+	vim.wo[win].cursorline = false
 
-	-- Helper to close the window gracefully
+	-- Seed a space into the buffer to push the cursor out
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " })
+	
+	-- Function to (re)draw the icon as inline virtual text
+	local function redraw_icon()
+		vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
+		vim.api.nvim_buf_set_extmark(buf, ns_id, 0, 0, {
+			virt_text = { { setup.icon, setup.highlight } },
+			virt_text_pos = "inline",
+		})
+	end
+	
+	-- Initial icon rendering
+	redraw_icon()
+
+	-- Enter insert mode immediately
+	vim.schedule(function()
+		if vim.api.nvim_win_is_valid(win) then
+			vim.cmd("startinsert!")
+		end
+	end)
+	
+	refresh_statusline()
+
+	-- Safe window closing function
 	local function close()
 		if vim.api.nvim_win_is_valid(win) then
 			vim.cmd("stopinsert")
 			vim.api.nvim_win_close(win, true)
 		end
+		refresh_statusline()
 	end
 
-	-- Execution logic for Enter key
-	vim.keymap.set("i", "<CR>", function()
-		local line = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
-		close()
-		if line and line ~= "" then
-			if mode == ":" then
-				pcall(vim.api.nvim_command, line)
-			else
-				vim.cmd(mode .. line)
-			end
-		end
-	end, { buffer = buf })
+	-- CURSOR PROTECTION: Prevent deleting the prefix space or moving over the icon
+	local b_opts = { buffer = buf, expr = true }
+	vim.keymap.set("i", "<BS>", function()
+		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<BS>"
+	end, b_opts)
+	vim.keymap.set("i", "<Left>", function()
+		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<Left>"
+	end, b_opts)
+	vim.keymap.set("i", "<C-u>", function()
+		local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+		vim.api.nvim_buf_set_lines(buf, 0, 1, false, { line:sub(1, 1) })
+		vim.api.nvim_win_set_cursor(0, { 1, 1 })
+		return ""
+	end, b_opts)
 
-	-- Completion logic for Tab key (commands only)
+	-- HISTORY NAVIGATION (Up / Down keys)
+	local function navigate_history(delta)
+		local new_idx = h_idx + delta
+		if new_idx >= 1 and new_idx <= #history_list + 1 then
+			h_idx = new_idx
+			local cmd = history_list[h_idx] or ""
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. cmd })
+			redraw_icon()
+			vim.cmd("startinsert!")
+		end
+	end
+
+	vim.keymap.set("i", "<Up>", function() navigate_history(-1) end, { buffer = buf })
+	vim.keymap.set("i", "<Down>", function() navigate_history(1) end, { buffer = buf })
+
+	-- TAB COMPLETION
 	vim.keymap.set("i", "<Tab>", function()
 		if mode ~= ":" then return end
-		if vim.fn.pumvisible() == 1 then
-			vim.api.nvim_input("<C-n>")
-			return
-		end
-		local line = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
+		local line = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]:gsub("^%s+", "")
 		local candidates = vim.fn.getcompletion(line, "command")
-		if candidates and #candidates > 0 then
-			vim.fn.complete(1, candidates)
+		if #candidates > 0 then vim.fn.complete(1, candidates) end
+	end, { buffer = buf })
+
+	-- COMMAND EXECUTION (Enter key)
+	vim.keymap.set("i", "<CR>", function()
+		local line = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
+		line = line:gsub("^%s+", "") -- Remove the seed space
+		close()
+		
+		if line and line ~= "" then
+			local cmd = (mode == ":" and "" or mode) .. line
+			local ok, err = pcall(vim.cmd, cmd)
+			
+			if not ok then
+				-- Clean up Lua/Vim stack traces to show only the core error message
+				local clean_err = err:gsub("^.*:%s*E%d+:%s*", "")
+				if clean_err == "" then clean_err = err:gsub("^.-Error ", "") end
+				
+				vim.notify(clean_err, vim.log.levels.ERROR, { title = "Error" })
+			end
+			vim.fn.histadd(history_type, line)
 		end
 	end, { buffer = buf })
 
-	-- Closing mappings
-	vim.keymap.set("i", "<Esc>", close, { buffer = buf })
-	vim.keymap.set("n", "<Esc>", close, { buffer = buf })
-	vim.keymap.set("n", "q",     close, { buffer = buf })
+	vim.keymap.set({ "i", "n" }, "<Esc>", close, { buffer = buf })
+end
+
+-- 3. Message Delegation (Intersects system messages and routes to Notify)
+local function setup_message_delegation()
+	vim.ui_attach(ns_id, { ext_messages = true }, function(event, ...)
+		if event ~= "msg_show" then return end
+		local args = { ... }
+		local kind, content = args[1], args[2]
+		
+		-- Filter out unwanted noisy messages
+		if kind == "search_count" or kind == "statusline" or kind == "" then return end
+
+		local full_msg = ""
+		for _, chunk in ipairs(content) do full_msg = full_msg .. chunk[2] end
+
+		if full_msg ~= "" and full_msg ~= "\n" then
+			local level = vim.log.levels.INFO
+			if kind:match("err") then level = vim.log.levels.ERROR
+			elseif kind:match("warn") then level = vim.log.levels.WARN end
+			
+			vim.schedule(function()
+				vim.notify(full_msg, level, { title = "System" })
+			end)
+		end
+	end)
+end
+
+function M.setup(opts)
+	M.options = vim.tbl_deep_extend("force", M.defaults, opts or {})
+	
+	-- Enable system message interception
+	setup_message_delegation()
+
+	-- Set global keybindings to trigger the custom UI
+	vim.keymap.set("n", ":", function() M.open(":") end)
+	vim.keymap.set("n", "/", function() M.open("/") end)
+	vim.keymap.set("n", "?", function() M.open("?") end)
 end
 
 return M
