@@ -231,11 +231,33 @@ local function setup_message_delegation()
 			if msg_timer then msg_timer:stop() end
 			msg_timer = vim.defer_fn(function()
 				if #msg_buffer > 0 then
-					vim.notify(table.concat(msg_buffer, "\n"), last_level, { title = "System" })
+					local final_msg = table.concat(msg_buffer, "\n")
+					-- Noice-style final filtering
+					local patterns = {
+						"%d+ lines? yanked",
+						"%d+ lines? [<>].*ed",
+						"%d+ lines? [+-].*ed",
+						"%d+ lines? fewer",
+						"%d+ lines? more",
+						"%d+ lines? changed?",
+						"written",
+						"search hit BOTTOM",
+						"search hit TOP",
+						"^\".*\"%s*%d+L",
+						"^\".*\"%s*%[",
+					}
+					local skip = false
+					for _, p in ipairs(patterns) do
+						if final_msg:match(p) then skip = true; break end
+					end
+
+					if not skip then
+						vim.notify(final_msg, last_level, { title = "System" })
+					end
 					msg_buffer = {}
 				end
 				msg_timer = nil
-			end, 20)
+			end, 50) -- slightly longer debounce for better aggregation
 		end
 	end)
 end
