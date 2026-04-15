@@ -9,9 +9,12 @@ Designed to be a minimalist alternative to heavy plugins like `noice.nvim`, focu
 - **Centered Floating UI**: Beautifully centered command line for `:`, `/`, and `?`.
 - **Syntax Highlighting**: Real-time coloring as you type (Vimscript for commands, Regex for search).
 - **Virtual Text Icons**: Fixed prefix icons that stay on the left and never break your code.
-- **Smart Message Redirection**: Captures Neovim errors/warnings and redirects them to your notification plugin (e.g., `snacks.nvim`, `nvim-notify`).
 - **Intelligent Clearing**: Automatically clears the native command line only if a better notification UI is detected.
 - **Tab Completion**: Native command completion support inside the floating window.
+- **Blink.cmp Integration**: Deep integration for high-speed, correctly positioned command-line completion.
+- **Argument Completion**: Suggests not only commands but also their arguments (e.g., health checks for `:checkhealth`).
+- **Noice-grade Notifications**: Aggregates multi-line system messages (like `:LspInfo`) into clean, single notification bubbles.
+- **Smart Message Redirection**: Captures Neovim errors/warnings and redirects them to your notification plugin (e.g., `snacks.nvim`, `nvim-notify`).
 
 ## Installation
 
@@ -28,6 +31,29 @@ return {
 }
 ```
 
+## Completion Setup (Blink.cmp)
+
+To enable the "Luxury" completion experience, you **must** configure `blink.cmp` to use the `simple-noice` provider for our custom filetype:
+
+```lua
+-- In your blink.cmp configuration
+opts = {
+    sources = {
+        default = { "snippets", "lsp", "path", "buffer" },
+        per_filetype = {
+            simple_noice_input = { "simple_noice" },
+        },
+        providers = {
+            simple_noice = {
+                name = "SimpleNoice",
+                module = "simple-noice.blink_source",
+                score_offset = 100,
+            },
+        },
+    },
+}
+```
+
 ## Configuration
 
 The plugin comes with sensible defaults. You can customize icons, colors, and behavior:
@@ -40,20 +66,20 @@ require("simple-noice").setup({
         cmdline = { 
             title = " Cmdline ", 
             icon = "   ", 
-            highlight = "DiagnosticInfo", 
-            lang = "vim" 
+            highlight = "DiagnosticInfo",
+            lang = "vim"
         },
         search_down = { 
             title = " Search ", 
             icon = "    ", 
-            highlight = "DiagnosticWarn", 
-            lang = "regex" 
+            highlight = "DiagnosticWarn",
+            lang = "regex"
         },
         search_up = { 
             title = " Search ", 
             icon = "    ", 
-            highlight = "DiagnosticWarn", 
-            lang = "regex" 
+            highlight = "DiagnosticWarn",
+            lang = "regex"
         },
     },
     messages = {
@@ -68,19 +94,11 @@ require("simple-noice").setup({
 
 ### Key Bindings
 
-By default, calling `.setup()` will automatically map:
-- `:` -> Floating Cmdline
-- `/` -> Floating Search (Down)
-- `?` -> Floating Search (Up)
-
 Inside the floating window:
-- `<CR>`: Execute command/search.
-- `<Tab>`: Command completion (for `:` mode).
-- `<Esc>` or `q`: Close window.
-
-## Transparency & Themes
-
-The plugin uses your theme's `Normal` and `FloatBorder` highlight groups. For the best experience, ensure your theme defines `DiagnosticInfo` and `DiagnosticWarn` colors.
+- `<CR>`: Accept `blink.cmp` completion item if visible, otherwise execute command.
+- `<C-j>`, `<C-k>` or `<Tab>`: Navigate through completion suggestions.
+- `<Up>` / `<Down>`: Navigate command history.
+- `<Esc>`: Close window / Cancel.
 
 ## License
 
