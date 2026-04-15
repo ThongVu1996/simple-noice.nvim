@@ -2,8 +2,6 @@
 
 A lightweight, high-performance Neovim plugin that provides a centered floating command line and search UI, along with intelligent system message redirection. 
 
-Designed to be a minimalist alternative to heavy plugins like `noice.nvim`, focusing on aesthetics and speed.
-
 ## Features
 
 - **Centered Floating UI**: Beautifully centered command line for `:`, `/`, and `?`.
@@ -107,6 +105,12 @@ require("simple-noice").setup({
 - **History**: `history_up` / `history_down` (default `<Up>` / `<Down>`).
 - **Completion**: `completion_next` / `completion_prev` (default `<C-j>` / `<C-k>`).
 - **Cancel**: `close` key (default `<Esc>`).
+
+## Inspiration & Credits
+
+This plugin is deeply inspired by the incredible work done on [noice.nvim](https://github.com/folke/noice.nvim) by [folke](https://github.com/folke). While `noice.nvim` provides a comprehensive and highly flexible UI overhaul, `simple-noice.nvim` aims to capture its "luxury" essence in a minimalist, high-speed, and easy-to-configure package.
+
+We hold great respect for the original concepts and logic introduced by the `noice.nvim` community.
 
 ## License
 
