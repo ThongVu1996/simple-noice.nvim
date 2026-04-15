@@ -56,12 +56,21 @@ opts = {
 
 ## Configuration
 
-The plugin comes with sensible defaults. You can customize icons, colors, and behavior:
+The plugin comes with sensible defaults:
 
 ```lua
 require("simple-noice").setup({
     width = 60,
     border = "rounded",
+    -- Custom Keymaps
+    keymaps = {
+        confirm = "<CR>",            -- Execute command or accept blink suggestion
+        close = "<Esc>",              -- Close the floating window
+        history_up = "<Up>",          -- Navigate up in history
+        history_down = "<Down>",      -- Navigate down in history
+        completion_next = "<C-j>",    -- Next completion item
+        completion_prev = "<C-k>",    -- Previous completion item
+    },
     config = {
         cmdline = { 
             title = " Cmdline ", 
@@ -85,20 +94,16 @@ require("simple-noice").setup({
     messages = {
         enabled = true,
         highlight = "auto", -- Options: "auto", true, or false
-        -- true: Always shows popup notification & clears native cmdline.
-        -- false: Never shows popup & never clears cmdline (Native behavior).
-        -- "auto": Only shows popup & clears cmdline if a notifier is detected.
     }
 })
 ```
 
-### Key Bindings
+### Key Bindings (Inside Floating Window)
 
-Inside the floating window:
-- `<CR>`: Accept `blink.cmp` completion item if visible, otherwise execute command.
-- `<C-j>`, `<C-k>` or `<Tab>`: Navigate through completion suggestions.
-- `<Up>` / `<Down>`: Navigate command history.
-- `<Esc>`: Close window / Cancel.
+- **Execution**: `confirm` key (default `<CR>`).
+- **History**: `history_up` / `history_down` (default `<Up>` / `<Down>`).
+- **Completion**: `completion_next` / `completion_prev` (default `<C-j>` / `<C-k>`).
+- **Cancel**: `close` key (default `<Esc>`).
 
 ## License
 

@@ -4,10 +4,18 @@ local M = {}
 M.defaults = {
 	width = 60,
 	border = "rounded",
+	keymaps = {
+		confirm = "<CR>",
+		close = "<Esc>",
+		history_up = "<Up>",
+		history_down = "<Down>",
+		completion_next = "<C-j>",
+		completion_prev = "<C-k>",
+	},
 	config = {
-		cmdline = { title = " Cmdline ", icon = "  ", highlight = "DiagnosticInfo", lang = "vim" },
-		search_down = { title = " Search ", icon = "   ", highlight = "DiagnosticWarn", lang = "regex" },
-		search_up = { title = " Search ", icon = "   ", highlight = "DiagnosticWarn", lang = "regex" },
+		cmdline = { title = " Cmdline ", icon = "   ", highlight = "DiagnosticInfo", lang = "vim" },
+		search_down = { title = " Search ", icon = "    ", highlight = "DiagnosticWarn", lang = "regex" },
+		search_up = { title = " Search ", icon = "    ", highlight = "DiagnosticWarn", lang = "regex" },
 	},
 }
 
@@ -42,7 +50,7 @@ function M.open(mode)
 	end
 	local h_idx = #history_list + 1
 
-	-- Buffer setup
+	-- Buffer properties
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
 	
@@ -88,15 +96,19 @@ function M.open(mode)
 		refresh_statusline()
 	end
 
-	-- Keymaps
+	-- Dynamic Keymaps Integration
+	local keys = M.options.keymaps
 	local b_opts = { buffer = buf, expr = true }
+	local ok_blink, blink = pcall(require, "blink.cmp")
+	
+	-- Cursor protection mappings
 	vim.keymap.set("i", "<BS>", function()
 		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<BS>"
 	end, b_opts)
 	
-	vim.keymap.set("i", "<CR>", function()
-		local ok, blink = pcall(require, "blink.cmp")
-		if ok and blink.is_visible() then
+	-- Confirm / Execute
+	vim.keymap.set("i", keys.confirm, function()
+		if ok_blink and blink.is_visible() then
 			blink.accept()
 			return
 		end
@@ -114,7 +126,18 @@ function M.open(mode)
 		end
 	end, { buffer = buf })
 
-	vim.keymap.set("i", "<Up>", function()
+	-- Completion Navigation
+	if ok_blink then
+		vim.keymap.set("i", keys.completion_next, function()
+			if blink.is_visible() then blink.select_next() else vim.api.nvim_input(keys.completion_next) end
+		end, { buffer = buf })
+		vim.keymap.set("i", keys.completion_prev, function()
+			if blink.is_visible() then blink.select_prev() else vim.api.nvim_input(keys.completion_prev) end
+		end, { buffer = buf })
+	end
+
+	-- History Navigation
+	vim.keymap.set("i", keys.history_up, function()
 		local new_idx = h_idx - 1
 		if new_idx >= 1 then
 			h_idx = new_idx
@@ -124,7 +147,7 @@ function M.open(mode)
 		end
 	end, { buffer = buf })
 
-	vim.keymap.set("i", "<Down>", function()
+	vim.keymap.set("i", keys.history_down, function()
 		local new_idx = h_idx + 1
 		if new_idx <= #history_list + 1 then
 			h_idx = new_idx
@@ -135,7 +158,8 @@ function M.open(mode)
 		end
 	end, { buffer = buf })
 
-	vim.keymap.set({ "i", "n" }, "<Esc>", close, { buffer = buf })
+	-- Close
+	vim.keymap.set({ "i", "n" }, keys.close, close, { buffer = buf })
 end
 
 -- 3. Message Integration (Advanced Aggregator)
