@@ -94,6 +94,9 @@ require("simple-noice").setup({
     messages = {
         enabled = true,
         highlight = "auto", -- Options: "auto", true, or false
+        -- true: Always shows popup notification & clears native cmdline.
+        -- false: Never shows popup & never clears cmdline (Native behavior).
+        -- "auto": Only shows popup & clears cmdline if a notifier is detected.
     }
 })
 ```

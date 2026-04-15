@@ -50,7 +50,7 @@ function M.open(mode)
 	end
 	local h_idx = #history_list + 1
 
-	-- Buffer properties
+	-- Buffer setup
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
 	
@@ -90,24 +90,15 @@ function M.open(mode)
 	
 	local function close()
 		if win and vim.api.nvim_win_is_valid(win) then
-			vim.cmd("stopinsert")
+			pcall(function() vim.cmd("stopinsert") end)
 			vim.api.nvim_win_close(win, true)
 		end
 		refresh_statusline()
 	end
 
-	-- Dynamic Keymaps Integration
-	local keys = M.options.keymaps
-	local b_opts = { buffer = buf, expr = true }
-	local ok_blink, blink = pcall(require, "blink.cmp")
-	
-	-- Cursor protection mappings
-	vim.keymap.set("i", "<BS>", function()
-		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<BS>"
-	end, b_opts)
-	
-	-- Confirm / Execute
-	vim.keymap.set("i", keys.confirm, function()
+	-- Logic for execution
+	local function confirm()
+		local ok_blink, blink = pcall(require, "blink.cmp")
 		if ok_blink and blink.is_visible() then
 			blink.accept()
 			return
@@ -124,19 +115,57 @@ function M.open(mode)
 			end
 			vim.fn.histadd(history_type, line)
 		end
-	end, { buffer = buf })
-
-	-- Completion Navigation
-	if ok_blink then
-		vim.keymap.set("i", keys.completion_next, function()
-			if blink.is_visible() then blink.select_next() else vim.api.nvim_input(keys.completion_next) end
-		end, { buffer = buf })
-		vim.keymap.set("i", keys.completion_prev, function()
-			if blink.is_visible() then blink.select_prev() else vim.api.nvim_input(keys.completion_prev) end
-		end, { buffer = buf })
 	end
 
-	-- History Navigation
+	-- Keymaps
+	local keys = M.options.keymaps
+	local b_opts_expr = { buffer = buf, expr = true }
+	
+	-- Cursor Boundary and Buffer Integrity Protection
+	vim.api.nvim_create_autocmd("CursorMovedI", {
+		buffer = buf,
+		callback = function()
+			local cursor = vim.api.nvim_win_get_cursor(0)
+			if cursor[2] < 1 then
+				vim.api.nvim_win_set_cursor(0, { cursor[1], 1 })
+			end
+		end,
+	})
+
+	vim.api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
+		buffer = buf,
+		callback = function()
+			local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+			if not line or line == "" then
+				vim.api.nvim_buf_set_lines(buf, 0, 1, false, { " " })
+			end
+			redraw_icon() -- Always ensure icon is visible
+		end,
+	})
+
+	vim.keymap.set("i", "<BS>", function()
+		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<BS>"
+	end, b_opts_expr)
+
+	vim.keymap.set("i", "<C-w>", function()
+		local col = vim.api.nvim_win_get_cursor(0)[2]
+		if col > 1 then
+			vim.api.nvim_input("<C-w>")
+		end
+	end, { buffer = buf })
+
+	vim.keymap.set("i", "<C-u>", function()
+		vim.api.nvim_buf_set_lines(buf, 0, 1, false, { " " })
+		vim.api.nvim_win_set_cursor(0, { 1, 1 })
+	end, { buffer = buf })
+	
+	-- Confirm mappings (Hardcoded <CR> + Dynamic choice)
+	vim.keymap.set("i", "<CR>", confirm, { buffer = buf })
+	if keys.confirm ~= "<CR>" then
+		vim.keymap.set("i", keys.confirm, confirm, { buffer = buf })
+	end
+
+	-- Navigation & History
 	vim.keymap.set("i", keys.history_up, function()
 		local new_idx = h_idx - 1
 		if new_idx >= 1 then
@@ -151,15 +180,25 @@ function M.open(mode)
 		local new_idx = h_idx + 1
 		if new_idx <= #history_list + 1 then
 			h_idx = new_idx
-			local cmd = history_list[h_idx] or ""
-			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. cmd })
+			local h_cmd = history_list[h_idx] or ""
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. h_cmd })
 			redraw_icon()
 			vim.cmd("startinsert!")
 		end
 	end, { buffer = buf })
 
-	-- Close
 	vim.keymap.set({ "i", "n" }, keys.close, close, { buffer = buf })
+	
+	-- Blink navigation
+	local ok_blink, blink = pcall(require, "blink.cmp")
+	if ok_blink then
+		vim.keymap.set("i", keys.completion_next, function()
+			if blink.is_visible() then blink.select_next() else vim.api.nvim_input(keys.completion_next) end
+		end, { buffer = buf })
+		vim.keymap.set("i", keys.completion_prev, function()
+			if blink.is_visible() then blink.select_prev() else vim.api.nvim_input(keys.completion_prev) end
+		end, { buffer = buf })
+	end
 end
 
 -- 3. Message Integration (Advanced Aggregator)
@@ -179,8 +218,11 @@ local function setup_message_delegation()
 
 		if full_msg ~= "" and full_msg ~= "\n" then
 			local level = vim.log.levels.INFO
-			if kind:match("err") then level = vim.log.levels.ERROR
-			elseif kind:match("warn") then level = vim.log.levels.WARN end
+			local error_kinds = { emsg = true, echoerr = true, lua_error = true, rpc_error = true, lsp_error = true }
+			local warning_kinds = { wmsg = true, lsp_warn = true }
+
+			if error_kinds[kind] or kind:match("err") then level = vim.log.levels.ERROR
+			elseif warning_kinds[kind] or kind:match("warn") then level = vim.log.levels.WARN end
 			
 			if replace_last and #msg_buffer > 0 then table.remove(msg_buffer) end
 			table.insert(msg_buffer, full_msg)
