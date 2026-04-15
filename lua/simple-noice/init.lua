@@ -42,22 +42,18 @@ function M.open(mode)
 	end
 	local h_idx = #history_list + 1
 
-	-- Buffer properties setup
+	-- Buffer setup
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
-	vim.bo[buf].swapfile = false
 	
-	-- Set filetype for external plugin integration (like blink.cmp)
 	if mode == ":" then
 		vim.bo[buf].filetype = "simple_noice_input"
-		vim.bo[buf].syntax = "vim" -- Enable syntax highlighting for commands
+		vim.bo[buf].syntax = "vim"
 	else
 		vim.bo[buf].filetype = setup.lang
 	end
-	
-	vim.b[buf].simple_noice_active = true
 
-	-- Open the floating window centered
+	-- Open window
 	local width = M.options.width
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
@@ -68,17 +64,9 @@ function M.open(mode)
 		title = setup.title, title_pos = "center",
 	})
 
-	-- Window aesthetics optimization
 	vim.wo[win].winhighlight = "Normal:Normal,FloatBorder:" .. setup.highlight
-	vim.wo[win].signcolumn = "no"
-	vim.wo[win].number = false
-	vim.wo[win].relativenumber = false
-	vim.wo[win].cursorline = false
-
-	-- Seed a space into the buffer to push the cursor out
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " })
 	
-	-- Function to (re)draw the icon as inline virtual text
 	local function redraw_icon()
 		vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 		vim.api.nvim_buf_set_extmark(buf, ns_id, 0, 0, {
@@ -86,87 +74,71 @@ function M.open(mode)
 			virt_text_pos = "inline",
 		})
 	end
-	
-	-- Initial icon rendering
 	redraw_icon()
 
-	-- Enter insert mode immediately
 	vim.schedule(function()
-		if vim.api.nvim_win_is_valid(win) then
-			vim.cmd("startinsert!")
-		end
+		if vim.api.nvim_win_is_valid(win) then vim.cmd("startinsert!") end
 	end)
 	
-	refresh_statusline()
-
-	-- Safe window closing function
 	local function close()
-		if vim.api.nvim_win_is_valid(win) then
+		if win and vim.api.nvim_win_is_valid(win) then
 			vim.cmd("stopinsert")
 			vim.api.nvim_win_close(win, true)
 		end
 		refresh_statusline()
 	end
 
-	-- CURSOR PROTECTION
+	-- Keymaps
 	local b_opts = { buffer = buf, expr = true }
 	vim.keymap.set("i", "<BS>", function()
 		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<BS>"
 	end, b_opts)
-	vim.keymap.set("i", "<Left>", function()
-		return vim.api.nvim_win_get_cursor(0)[2] <= 1 and "" or "<Left>"
-	end, b_opts)
-	vim.keymap.set("i", "<C-u>", function()
-		local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
-		vim.api.nvim_buf_set_lines(buf, 0, 1, false, { line:sub(1, 1) })
-		vim.api.nvim_win_set_cursor(0, { 1, 1 })
-		return ""
-	end, b_opts)
-
-	-- HISTORY NAVIGATION
-	local function navigate_history(delta)
-		local new_idx = h_idx + delta
-		if new_idx >= 1 and new_idx <= #history_list + 1 then
-			h_idx = new_idx
-			local cmd = history_list[h_idx] or ""
-			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. cmd })
-			redraw_icon()
-			vim.cmd("startinsert!")
-		end
-	end
-
-	vim.keymap.set("i", "<Up>", function() navigate_history(-1) end, { buffer = buf })
-	vim.keymap.set("i", "<Down>", function() navigate_history(1) end, { buffer = buf })
-
-	-- COMMAND EXECUTION (Enter key)
+	
 	vim.keymap.set("i", "<CR>", function()
-		-- Integration with blink.cmp
-		local ok_blink, blink = pcall(require, "blink.cmp")
-		if ok_blink and blink.is_visible() then
+		local ok, blink = pcall(require, "blink.cmp")
+		if ok and blink.is_visible() then
 			blink.accept()
 			return
 		end
-
 		local line = vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1]
 		line = line:gsub("^%s+", "")
 		close()
-		
-		if line and line ~= "" then
+		if line ~= "" then
 			local cmd = (mode == ":" and "" or mode) .. line
 			local ok_cmd, err = pcall(vim.cmd, cmd)
 			if not ok_cmd then
 				local clean_err = err:gsub("^.*:%s*E%d+:%s*", "")
-				if clean_err == "" then clean_err = err:gsub("^.-Error ", "") end
 				vim.notify(clean_err, vim.log.levels.ERROR, { title = "Error" })
 			end
 			vim.fn.histadd(history_type, line)
 		end
 	end, { buffer = buf })
 
+	vim.keymap.set("i", "<Up>", function()
+		local new_idx = h_idx - 1
+		if new_idx >= 1 then
+			h_idx = new_idx
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. history_list[h_idx] })
+			redraw_icon()
+			vim.cmd("startinsert!")
+		end
+	end, { buffer = buf })
+
+	vim.keymap.set("i", "<Down>", function()
+		local new_idx = h_idx + 1
+		if new_idx <= #history_list + 1 then
+			h_idx = new_idx
+			local cmd = history_list[h_idx] or ""
+			vim.api.nvim_buf_set_lines(buf, 0, -1, false, { " " .. cmd })
+			redraw_icon()
+			vim.cmd("startinsert!")
+		end
+	end, { buffer = buf })
+
 	vim.keymap.set({ "i", "n" }, "<Esc>", close, { buffer = buf })
 end
 
--- 3. Message Integration (Timer-based Aggregator)
+-- 3. Message Integration (Advanced Aggregator)
 local msg_buffer = {}
 local msg_timer = nil
 local last_level = vim.log.levels.INFO
@@ -174,10 +146,8 @@ local last_level = vim.log.levels.INFO
 local function setup_message_delegation()
 	vim.ui_attach(ns_id, { ext_messages = true }, function(event, ...)
 		if event ~= "msg_show" then return end
-		
 		local args = { ... }
 		local kind, content, replace_last = args[1], args[2], args[3]
-		
 		if kind == "search_count" or kind == "statusline" or kind == "" then return end
 
 		local full_msg = ""
@@ -188,19 +158,14 @@ local function setup_message_delegation()
 			if kind:match("err") then level = vim.log.levels.ERROR
 			elseif kind:match("warn") then level = vim.log.levels.WARN end
 			
-			-- Handle replace_last (like noice.nvim)
-			if replace_last and #msg_buffer > 0 then
-				table.remove(msg_buffer)
-			end
-			
+			if replace_last and #msg_buffer > 0 then table.remove(msg_buffer) end
 			table.insert(msg_buffer, full_msg)
 			last_level = level
 
 			if msg_timer then msg_timer:stop() end
 			msg_timer = vim.defer_fn(function()
 				if #msg_buffer > 0 then
-					local final_msg = table.concat(msg_buffer, "\n")
-					vim.notify(final_msg, last_level, { title = "System" })
+					vim.notify(table.concat(msg_buffer, "\n"), last_level, { title = "System" })
 					msg_buffer = {}
 				end
 				msg_timer = nil
