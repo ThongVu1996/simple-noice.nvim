@@ -245,6 +245,7 @@ local function setup_message_delegation()
 						"search hit TOP",
 						"^\".*\"%s*%d+L",
 						"^\".*\"%s*%[",
+						"^/", -- Bỏ qua các lệnh tìm kiếm hoặc thông điệp bắt đầu bằng /
 					}
 					local skip = false
 					for _, p in ipairs(patterns) do
